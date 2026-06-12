@@ -1,0 +1,80 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <sys/mman.h>
+#include <sys/wait.h>
+#include <semaphore.h>
+#include <string.h>
+#include <ctype.h>
+
+#define ROZMIAR 4096
+
+int main()
+{
+    int pam = shm_open("pamiec", O_CREAT | O_RDWR, 0666);
+    ftruncate(pam, ROZMIAR);
+
+    char *wsk = mmap(NULL, ROZMIAR,
+                     PROT_READ | PROT_WRITE,
+                     MAP_SHARED,
+                     pam,
+                     0);
+
+    sem_t *sem_start = sem_open("sem_start", O_CREAT, 0666, 0);
+    sem_t *sem_koniec = sem_open("sem_koniec", O_CREAT, 0666, 0);
+
+    pid_t pid = fork();
+
+    if (pid == 0)
+    {
+        sem_wait(sem_start);
+
+        for (int i = 0; wsk[i] != '\0'; i++)
+        {
+            wsk[i] = tolower((unsigned char)wsk[i]);
+        }
+
+        sem_post(sem_koniec);
+
+        munmap(wsk, ROZMIAR);
+        close(pam);
+
+        sem_close(sem_start);
+        sem_close(sem_koniec);
+
+        exit(0);
+    }
+    else
+    {
+        FILE *fin = fopen("wejscie.txt", "r");
+
+        int n = fread(wsk, 1, ROZMIAR - 1, fin);
+        wsk[n] = '\0';
+
+        fclose(fin);
+
+        sem_post(sem_start);
+
+        sem_wait(sem_koniec);
+
+        FILE *fout = fopen("wyjscie.txt", "w");
+        fprintf(fout, "%s", wsk);
+        fclose(fout);
+
+        wait(NULL);
+
+        munmap(wsk, ROZMIAR);
+        close(pam);
+
+        sem_close(sem_start);
+        sem_close(sem_koniec);
+
+        sem_unlink("sem_start");
+        sem_unlink("sem_koniec");
+
+        shm_unlink("pamiec");
+    }
+
+    return 0;
+}
