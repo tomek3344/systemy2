@@ -1,0 +1,103 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <string.h>
+#include <sys/wait.h>
+
+#define BUF_SIZE 4096
+#define OUT_SIZE 32768
+
+int main()
+{
+    int p1[2];
+    int p2[2];
+
+    pipe(p1);
+    pipe(p2);
+
+    pid_t pid = fork();
+
+    if (pid == 0)
+    {
+        close(p1[1]);
+        close(p2[0]);
+
+        char buf[BUF_SIZE];
+        char out[OUT_SIZE];
+        int n;
+        int pos = 0;
+
+        const char *words[] = {
+            "zero", "one", "two", "three", "four",
+            "five", "six", "seven", "eight", "nine"
+        };
+
+        while ((n = read(p1[0], buf, BUF_SIZE)) > 0)
+        {
+            for (int i = 0; i < n; i++)
+            {
+                if (buf[i] >= '0' && buf[i] <= '9')
+                {
+                    const char *w = words[buf[i] - '0'];
+                    int len = strlen(w);
+                    memcpy(out + pos, w, len);
+                    pos += len;
+                }
+                else
+                {
+                    out[pos++] = buf[i];
+                }
+            }
+        }
+
+        write(p2[1], out, pos);
+
+        close(p1[0]);
+        close(p2[1]);
+
+        exit(0);
+    }
+    else
+    {
+        close(p1[0]);
+        close(p2[1]);
+
+        FILE *fin = fopen("wejscie.txt", "r");
+        if (fin == NULL)
+        {
+            perror("wejscie.txt");
+            return 1;
+        }
+
+        char buf[BUF_SIZE];
+        int n;
+
+        while ((n = fread(buf, 1, BUF_SIZE, fin)) > 0)
+        {
+            write(p1[1], buf, n);
+        }
+
+        fclose(fin);
+        close(p1[1]);
+
+        FILE *fout = fopen("wyjscie.txt", "w");
+        if (fout == NULL)
+        {
+            perror("wyjscie.txt");
+            return 1;
+        }
+
+        while ((n = read(p2[0], buf, BUF_SIZE)) > 0)
+        {
+            fwrite(buf, 1, n, fout);
+        }
+
+        fclose(fout);
+
+        close(p2[0]);
+
+        wait(NULL);
+    }
+
+    return 0;
+}
